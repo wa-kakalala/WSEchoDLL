@@ -15,7 +15,7 @@
 	2： 退出
 */
 int taskStatus = 0;
-std::mutex some_mutex;
+std::mutex mtx;
 
 
 
@@ -49,8 +49,6 @@ int Init() {
 }
 
 void Defer() {
-	std::lock_guard<std::mutex> guard(some_mutex);
-	taskStatus = 2;
 	WSACleanup();
 }
 
@@ -64,7 +62,9 @@ void pingTask(void(*f)(const char * msg)) {
 	struct tm *timeNow;
 
 	while (true) {
+		mtx.lock();
 		status = taskStatus;
+		mtx.unlock();
 		if (status == 1) continue;
 		else if (status == 2) break;
 		
@@ -132,6 +132,9 @@ int Bind(const char*ip, unsigned short* port) {
 
 
 int Close() {
+	mtx.lock();
+	taskStatus = 2;
+	mtx.unlock();
 	if(closesocket(sfd) == SOCKET_ERROR) return -1;
 	return 0;
 }
@@ -145,14 +148,16 @@ int Receive(void(*f)(const char * msg)) {
 		return 0;
 	}
 
-	std::lock_guard<std::mutex> guard(some_mutex);
+	mtx.lock();
 	taskStatus = 0;
+	mtx.unlock();
 	return 0;
 }
 
 void StopReceive() {
-	std::lock_guard<std::mutex> guard(some_mutex);
+	mtx.lock();
 	taskStatus = 1;
+	mtx.unlock();
 }
 
 int Ping(const char* ip, unsigned short port) {

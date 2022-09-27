@@ -1,9 +1,9 @@
-#pragma once
+ï»¿#pragma once
 
 #ifdef _DLLAPI
-#define DLLAPI __declspec(dllexport)  // µ¼³ö
+#define DLLAPI __declspec(dllexport)  // å¯¼å‡º
 #else
-#define DLLAPI __declspec(dllimport)  // µ¼Èë
+#define DLLAPI __declspec(dllimport)  // å¯¼å…¥
 #endif
 
 #include <stdio.h>
@@ -13,3 +13,5 @@ extern "C" DLLAPI int Close();
 extern "C" DLLAPI int Receive(void(*f)(const char*msg));
 extern "C" DLLAPI void StopReceive();
 extern "C" DLLAPI int Ping(const char*ip, unsigned short port);
+extern "C" DLLAPI int Init();
+extern "C" DLLAPI void Defer();

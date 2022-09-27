@@ -1,4 +1,4 @@
-#define _WINSOCK_DEPRECATED_NO_WARNINGS
+Ôªø#define _WINSOCK_DEPRECATED_NO_WARNINGS
 #define _CRT_SECURE_NO_WARNINGS
 #include <stdio.h>
 #include "types.h"
@@ -10,8 +10,8 @@
 SOCKET sfd = 0;
 
 /**
-* ≥ı ºªØWSA
-* ≤Ÿ◊˜œµÕ≥∏˘æ›«Î«ÛµƒSocket∞Ê±æÀ—À˜œ‡”¶µƒSocketø‚ --> ∞Û∂®µΩ∏√”¶”√≥Ã–Ú
+* ÂàùÂßãÂåñWSA
+* Êìç‰ΩúÁ≥ªÁªüÊ†πÊçÆËØ∑Ê±ÇÁöÑSocketÁâàÊú¨ÊêúÁ¥¢Áõ∏Â∫îÁöÑSocketÂ∫ì --> ÁªëÂÆöÂà∞ËØ•Â∫îÁî®Á®ãÂ∫è
 * @return -1 fail
 		   0 success
 */
@@ -30,21 +30,31 @@ int WSA_Init() {
 	return 0;
 }
 
+int Init() {
+	if(WSA_Init()<0) return -1;
+	return 0;
+}
+
+void Defer() {
+	WSACleanup();
+}
+
 /**
-* socket ∞Û∂®
-* @param	ip			ipv4µÿ÷∑
-* @param	port		∂Àø⁄
-* @return	socketfd	º‡Ã˝µƒsocketfd
+* socket ÁªëÂÆö
+* @param	ip			ipv4Âú∞ÂùÄ
+* @param	port		Á´ØÂè£
+* @return	socketfd	ÁõëÂê¨ÁöÑsocketfd
 *           -1          fail
 */
 int Bind(const char*ip, unsigned short* port) {
-	if(WSA_Init()<0) return -1;
+	int res = 0;
 	sfd = socket(AF_INET, SOCK_DGRAM, 0);
 	if (sfd == INVALID_SOCKET) {
 		perror("invaild socket");
 		return -1;
 	}
 	struct sockaddr_in srv_addr;
+	int addr_len = sizeof(srv_addr);
 	srv_addr.sin_family = AF_INET;
 	srv_addr.sin_port = htons(*port);
 	srv_addr.sin_addr.s_addr = inet_addr(ip);
@@ -53,35 +63,36 @@ int Bind(const char*ip, unsigned short* port) {
 		perror("address\r\n");
 		return -1;
 	}
-	if ( bind(sfd, (struct sockaddr *)&srv_addr, sizeof(srv_addr) ) == SOCKET_ERROR ) {
+	if ( bind(sfd, (struct sockaddr *)&srv_addr, addr_len) == SOCKET_ERROR ) {
 		perror("bind error");
 		return -1;
 	}
+	// Ëé∑ÂèñÁ´ØÂè£‰ø°ÊÅØ
+	res = getsockname(sfd, (struct sockaddr *)&srv_addr, &addr_len); 
+	*port = ntohs(srv_addr.sin_port);
 	return sfd;
 }
 
 int Close() {
 	if(closesocket(sfd) == SOCKET_ERROR) return -1;
-	WSACleanup();
 	return 0;
 }
 
 int Receive(void(*f)(const char * msg)) {
-	char buf[1024] = { 0 };
-	struct sockaddr_in clnt_addr; /* øÕªß∂Àµÿ÷∑ */
+	Message msg = { 0 };
+	struct sockaddr_in clnt_addr; /* ÂÆ¢Êà∑Á´ØÂú∞ÂùÄ */
 	int res = 0;
 	int addr_len = sizeof(clnt_addr);
-	res = recvfrom(sfd, buf, 512, 0,
+	res = recvfrom(sfd, (char*)&msg, sizeof(msg), 0,
 		(struct sockaddr *)&clnt_addr, &addr_len);
-	Message * msg = (Message*)buf;
-	switch (msg->type) {
+	switch (msg.type) {
 	case MES_PING_REQ:
-		f(msg->data);
-		memset(msg, 0, sizeof(buf));
-		msg->type = MES_PING_REP;
-		sprintf(msg->data, "%s", "hello,wkk to client");
-		msg->len = strlen(msg->data);
-		sendto(sfd, (char *)msg, sizeof(unsigned int) + 1 + msg->len, 0,
+		f(msg.data);
+		memset(&msg, 0, sizeof(msg));
+		msg.type = MES_PING_REP;
+		sprintf(msg.data, "%s", "hello,wkk to client");
+		msg.len = strlen(msg.data);
+		sendto(sfd, (char *)&msg, sizeof(unsigned int) + 1 + msg.len, 0,
 			(struct sockaddr *)&clnt_addr, addr_len);
 		break;
 	}
@@ -93,10 +104,11 @@ void StopReceive() {
 }
 
 int Ping(const char* ip, unsigned short port) {
-	if (WSA_Init() < 0) return -1;
 	SOCKET  clientfd = 0;
 	int res = 0;
-	struct sockaddr_in peer_addr, serv_addr;
+	Message pingMsg = { 0 };
+	struct sockaddr_in serv_addr;
+
 	serv_addr.sin_family = AF_INET;
 	serv_addr.sin_port = htons(port);
 	serv_addr.sin_addr.s_addr = inet_addr(ip);
@@ -108,20 +120,11 @@ int Ping(const char* ip, unsigned short port) {
 
 	clientfd = socket(AF_INET, SOCK_DGRAM, 0);
 
-	Message pingMsg = { MES_PING_REQ };
-
-	/*time_t now = time(&now);
-	struct tm* nowTime = localtime(&now);
-	if (nowTime == NULL) {
-		perror("parse localtime error");
-		return -1;
-	}*/
-	/*sprintf(pingMsg.data,"%d/%d/%d %d:%d:%d\0",nowTime->tm_year,nowTime->tm_mon,nowTime->tm_mday
-										   ,nowTime->tm_hour,nowTime->tm_min,nowTime->tm_sec);*/
+	pingMsg.type = MES_PING_REQ;
 	sprintf(pingMsg.data, "%s", "hello,wkk to server");
 	pingMsg.len = strlen(pingMsg.data);
 
-	res = sendto(clientfd, (char*)&pingMsg, (sizeof(unsigned int) + 1 + pingMsg.len), 0,
+	res = sendto(clientfd, (char*)&pingMsg, sizeof(unsigned int) + 1 + pingMsg.len, 0,
 		(struct sockaddr *)&serv_addr, sizeof(serv_addr));
 	if (res == SOCKET_ERROR) {
 		perror("send data error");
@@ -136,6 +139,5 @@ int Ping(const char* ip, unsigned short port) {
 	printf("%s\r\n", pingMsg.data);
 	closesocket(clientfd);
 	WSACleanup();
-	
 	return 0;
 }

@@ -4,8 +4,6 @@
 #include "types.h"
 #include "WSEchoDLL.h"
 #include <winsock2.h>
-#include <thread>
-#include <mutex>
 #include <time.h>
 #pragma comment(lib,"ws2_32.lib")
 
@@ -14,8 +12,6 @@
 	1： 暂停
 	2： 退出
 */
-int taskStatus = 0;
-std::mutex mtx;
 
 SOCKET sfd = 0;
 
@@ -78,8 +74,8 @@ int Bind(const char*ip, unsigned short* port) {
 		return -1;
 	}
 
-	//int iTimeOut = 1000;
-	//setsockopt(sfd, SOL_SOCKET, SO_RCVTIMEO, (char*)&iTimeOut, sizeof(iTimeOut));
+	int iTimeOut = 1;
+	setsockopt(sfd, SOL_SOCKET, SO_RCVTIMEO, (char*)&iTimeOut, sizeof(iTimeOut));
 	// 获取端口信息
 	res = getsockname(sfd, (struct sockaddr *)&srv_addr, &addr_len); 
 	*port = ntohs(srv_addr.sin_port);
@@ -87,12 +83,11 @@ int Bind(const char*ip, unsigned short* port) {
 }
 
 int Close() {
-	taskStatus = 0;
 	if(closesocket(sfd) == SOCKET_ERROR) return -1;
 	return 0;
 }
 
-void recvTask(void(*f)(const char * msg)) {
+int Receive(void(*f)(const char * msg)) {
 	Message msg = { 0 };
 	struct sockaddr_in clnt_addr; /* 客户端地址 */
 	int res = 0;
@@ -100,39 +95,29 @@ void recvTask(void(*f)(const char * msg)) {
 	time_t now;
 	struct tm *timeNow;
 
-	while (taskStatus) {
-		res = recvfrom(sfd, (char*)&msg, sizeof(msg), 0, (struct sockaddr *)&clnt_addr, &addr_len);
-		if (res < 0) {
-			continue;
-		}
-		
-		switch (msg.type) {
-		case MES_PING_REQ:
-			f(msg.data);
-			memset(&msg, 0, sizeof(msg));
-			msg.type = MES_PING_REP;
-			time(&now);
-			timeNow = localtime(&now);
-			sprintf(msg.data, "%d-%d-%d %d:%d:%d\r\n", timeNow->tm_year + 1900, timeNow->tm_mon + 1, timeNow->tm_mday,
-				timeNow->tm_hour, timeNow->tm_min, timeNow->tm_sec);
-			msg.len = strlen(msg.data);
-			sendto(sfd, (char *)&msg, sizeof(unsigned int) + 5 + msg.len, 0,
-				(struct sockaddr *)&clnt_addr, addr_len);
-			break;
-		}
+	res = recvfrom(sfd, (char*)&msg, sizeof(msg), 0, (struct sockaddr *)&clnt_addr, &addr_len);
+	if (res < 0) return -1;
+
+	switch (msg.type) {
+	case MES_PING_REQ:
+		f(msg.data);
+		memset(&msg, 0, sizeof(msg));
+		msg.type = MES_PING_REP;
+		time(&now);
+		timeNow = localtime(&now);
+		sprintf(msg.data, "%d-%d-%d %d:%d:%d\r\n", timeNow->tm_year + 1900, timeNow->tm_mon + 1, timeNow->tm_mday,
+			timeNow->tm_hour, timeNow->tm_min, timeNow->tm_sec);
+		msg.len = strlen(msg.data);
+		sendto(sfd, (char *)&msg, sizeof(unsigned int) + 5 + msg.len, 0,
+			(struct sockaddr *)&clnt_addr, addr_len);
+		break;
 	}
 }
 
-int Receive(void(*f)(const char * msg)) {
-	taskStatus = 1;
-	std::thread mythread(recvTask,f);
-	mythread.detach();
-	return 0;
+void StopReceive() {
+
 }
 
-void StopReceive() {
-	taskStatus = 0;
-}
 
 int Ping(const char* ip, unsigned short port) {
 	SOCKET  clientfd = 0;

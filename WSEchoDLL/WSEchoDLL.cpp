@@ -6,7 +6,7 @@
 #include <winsock2.h>
 #include <thread>
 #include <mutex>
-// #include <time.h>
+#include <time.h>
 #pragma comment(lib,"ws2_32.lib")
 
 /*
@@ -16,9 +16,6 @@
 */
 int taskStatus = 0;
 std::mutex mtx;
-
-
-
 
 SOCKET sfd = 0;
 
@@ -32,7 +29,7 @@ int WSA_Init() {
 	WORD sockVersion = MAKEWORD(2, 2); // socket verison 
 	WSADATA wsaData = { 0 };
 	if (WSAStartup(sockVersion, &wsaData) != 0) {
-		perror("socket-lib init error");
+		//perror("socket-lib init error");
 		return -1;
 	}
 	//byte lv = LOBYTE(wsaData.wVersion);
@@ -81,63 +78,60 @@ int Bind(const char*ip, unsigned short* port) {
 		return -1;
 	}
 
-	unsigned long ul = 1;
-	res = ioctlsocket(sfd, FIONBIO, (unsigned long *)&ul);//设置成非阻塞模式。 
-	if (res == SOCKET_ERROR){
-		perror("set to nonblock model error");
-		return -1;
-	}
-	
-
+	//int iTimeOut = 1000;
+	//setsockopt(sfd, SOL_SOCKET, SO_RCVTIMEO, (char*)&iTimeOut, sizeof(iTimeOut));
 	// 获取端口信息
 	res = getsockname(sfd, (struct sockaddr *)&srv_addr, &addr_len); 
 	*port = ntohs(srv_addr.sin_port);
 	return sfd;
 }
 
-
-
 int Close() {
+	taskStatus = 0;
 	if(closesocket(sfd) == SOCKET_ERROR) return -1;
 	return 0;
 }
 
-int Receive(void(*f)(const char * msg)) {
+void recvTask(void(*f)(const char * msg)) {
 	Message msg = { 0 };
-	Message msg_res = { 0 };
 	struct sockaddr_in clnt_addr; /* 客户端地址 */
 	int res = 0;
 	int addr_len = sizeof(clnt_addr);
-	int status = 0;
 	time_t now;
 	struct tm *timeNow;
 
-		res = recvfrom(sfd, (char*)&msg, sizeof(msg), 0,
-			(struct sockaddr *)&clnt_addr, &addr_len);
+	while (taskStatus) {
+		res = recvfrom(sfd, (char*)&msg, sizeof(msg), 0, (struct sockaddr *)&clnt_addr, &addr_len);
 		if (res < 0) {
-			f("");
-			return 0;
+			continue;
 		}
+		
 		switch (msg.type) {
-		case MES_PING_REQ:	
-			memset(&msg_res, 0, sizeof(msg_res));
-			msg_res.type = MES_PING_REP;
+		case MES_PING_REQ:
+			f(msg.data);
+			memset(&msg, 0, sizeof(msg));
+			msg.type = MES_PING_REP;
 			time(&now);
 			timeNow = localtime(&now);
-			sprintf(msg_res.data, "%d-%d-%d %d:%d:%d\r\n", timeNow->tm_year + 1900, timeNow->tm_mon + 1, timeNow->tm_mday,
-				timeNow->tm_hour, timeNow->tm_hour, timeNow->tm_sec);
-			msg_res.len = strlen(msg_res.data);
-			sendto(sfd, (char *)&msg_res, sizeof(unsigned int) + 1 + msg_res.len, 0,
+			sprintf(msg.data, "%d-%d-%d %d:%d:%d\r\n", timeNow->tm_year + 1900, timeNow->tm_mon + 1, timeNow->tm_mday,
+				timeNow->tm_hour, timeNow->tm_min, timeNow->tm_sec);
+			msg.len = strlen(msg.data);
+			sendto(sfd, (char *)&msg, sizeof(unsigned int) + 5 + msg.len, 0,
 				(struct sockaddr *)&clnt_addr, addr_len);
 			break;
 		}
-		f(msg.data);
-		
+	}
+}
+
+int Receive(void(*f)(const char * msg)) {
+	taskStatus = 1;
+	std::thread mythread(recvTask,f);
+	mythread.detach();
 	return 0;
 }
 
 void StopReceive() {
-
+	taskStatus = 0;
 }
 
 int Ping(const char* ip, unsigned short port) {
@@ -163,24 +157,23 @@ int Ping(const char* ip, unsigned short port) {
 	pingMsg.type = MES_PING_REQ;
 	time(&now);
 	timeNow = localtime(&now);
-	getsockname(sfd, (struct sockaddr *)&client_addr, &addr_len);
-	sprintf(pingMsg.data, "[%s]-> %d-%d-%d %d:%d:%d\n ", inet_ntoa(client_addr.sin_addr),timeNow->tm_year+1900,
-		      timeNow->tm_mon+1,timeNow->tm_mday,timeNow->tm_hour,timeNow->tm_hour,timeNow->tm_sec);
+	sprintf(pingMsg.data, "[client]-> %d-%d-%d %d:%d:%d\r\n",timeNow->tm_year+1900,
+		      timeNow->tm_mon+1,timeNow->tm_mday,timeNow->tm_hour,timeNow->tm_min,timeNow->tm_sec);
 	pingMsg.len = strlen(pingMsg.data);
 
-	res = sendto(clientfd, (char*)&pingMsg, sizeof(unsigned int) + 1 + pingMsg.len, 0,
+	res = sendto(clientfd, (char*)&pingMsg, sizeof(unsigned int) + 5 + pingMsg.len, 0,
 		(struct sockaddr *)&serv_addr, addr_len);
 	if (res == SOCKET_ERROR) {
 		perror("send data error");
 		return -1;
 	}
 	memset(&pingMsg, 0, sizeof(pingMsg));
-	res = recvfrom(clientfd, (char*)&pingMsg, 512, 0, (struct sockaddr *)&serv_addr, &addr_len);
+	res = recvfrom(clientfd, (char*)&pingMsg, sizeof(pingMsg), 0, (struct sockaddr *)&serv_addr, &addr_len);
 	if (res == SOCKET_ERROR) {
 		perror("recv data error");
 		return -1;
 	}
-	printf("%s\r\n", pingMsg.data);
+	//printf("%s\r\n", pingMsg.data);
 	closesocket(clientfd);
 	return 0;
 }

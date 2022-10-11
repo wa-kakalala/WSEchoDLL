@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+#define _DLLAPI
 #ifdef _DLLAPI
 #define DLLAPI __declspec(dllexport)  // 导出
 #else
